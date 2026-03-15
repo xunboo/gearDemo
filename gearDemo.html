@@ -1,0 +1,432 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>真实啮合的渐开线双齿轮</title>
+  <style>
+    * { box-sizing: border-box; }
+
+    html, body {
+      margin: 0;
+      width: 100%;
+      height: 100%;
+      overflow: hidden;
+      background: linear-gradient(180deg, #f8fafc 0%, #e9eef5 100%);
+      font-family: Arial, "PingFang SC", "Microsoft YaHei", sans-serif;
+    }
+
+    .stage {
+      width: 100%;
+      height: 100%;
+      display: grid;
+      place-items: center;
+    }
+
+    svg {
+      width: min(92vw, 1100px);
+      height: auto;
+      display: block;
+    }
+
+    .gear {
+      filter: drop-shadow(0 8px 16px rgba(0,0,0,0.16));
+    }
+
+    .panel {
+      position: fixed;
+      left: 50%;
+      bottom: 18px;
+      transform: translateX(-50%);
+      padding: 8px 14px;
+      font-size: 13px;
+      color: #475467;
+      background: rgba(255,255,255,0.75);
+      border: 1px solid rgba(0,0,0,0.08);
+      border-radius: 999px;
+      backdrop-filter: blur(8px);
+      user-select: none;
+    }
+  </style>
+</head>
+<body>
+  <div class="stage">
+    <svg viewBox="0 0 1200 620" xmlns="http://www.w3.org/2000/svg">
+      <defs>
+        <linearGradient id="metalA" x1="0%" y1="0%" x2="100%" y2="100%">
+          <stop offset="0%" stop-color="#eef3f8"/>
+          <stop offset="30%" stop-color="#cfd7e0"/>
+          <stop offset="60%" stop-color="#9ba7b4"/>
+          <stop offset="100%" stop-color="#7c8793"/>
+        </linearGradient>
+
+        <linearGradient id="metalB" x1="0%" y1="0%" x2="100%" y2="100%">
+          <stop offset="0%" stop-color="#f7f9fc"/>
+          <stop offset="35%" stop-color="#d9e1e9"/>
+          <stop offset="65%" stop-color="#aab5c0"/>
+          <stop offset="100%" stop-color="#88939f"/>
+        </linearGradient>
+
+        <radialGradient id="hubGrad" cx="35%" cy="35%" r="80%">
+          <stop offset="0%" stop-color="#ffffff"/>
+          <stop offset="100%" stop-color="#87929f"/>
+        </radialGradient>
+      </defs>
+
+      <!-- 背景装饰 -->
+      <circle cx="600" cy="310" r="220" fill="rgba(255,255,255,0.42)"/>
+      <circle cx="600" cy="310" r="160" fill="rgba(255,255,255,0.28)"/>
+
+      <!-- 齿轮 -->
+      <g id="gear1" class="gear"></g>
+      <g id="gear2" class="gear"></g>
+    </svg>
+  </div>
+
+  <div class="panel" id="info">真实渐开线啮合齿轮</div>
+
+  <script>
+    const SVG_NS = "http://www.w3.org/2000/svg";
+    const TAU = Math.PI * 2;
+
+    function createSVG(tag, attrs = {}) {
+      const el = document.createElementNS(SVG_NS, tag);
+      for (const [k, v] of Object.entries(attrs)) {
+        el.setAttribute(k, v);
+      }
+      return el;
+    }
+
+    function polar(r, a) {
+      return { x: r * Math.cos(a), y: r * Math.sin(a) };
+    }
+
+    function rotate(p, a) {
+      const c = Math.cos(a), s = Math.sin(a);
+      return {
+        x: p.x * c - p.y * s,
+        y: p.x * s + p.y * c
+      };
+    }
+
+    function translate(p, cx, cy) {
+      return { x: p.x + cx, y: p.y + cy };
+    }
+
+    function involutePoint(rb, t) {
+      return {
+        x: rb * (Math.cos(t) + t * Math.sin(t)),
+        y: rb * (Math.sin(t) - t * Math.cos(t))
+      };
+    }
+
+    function pointAngle(p) {
+      return Math.atan2(p.y, p.x);
+    }
+
+    function radiusToInvoluteT(rb, r) {
+      return Math.sqrt(Math.max(r * r / (rb * rb) - 1, 0));
+    }
+
+    function arcPoints(r, a1, a2, steps) {
+      let delta = a2 - a1;
+      while (delta <= 0) delta += TAU;
+      const pts = [];
+      for (let i = 0; i <= steps; i++) {
+        const a = a1 + delta * i / steps;
+        pts.push({ x: r * Math.cos(a), y: r * Math.sin(a) });
+      }
+      return pts;
+    }
+
+    /**
+     * 构造标准渐开线齿轮
+     * 返回 group 及关键几何参数
+     */
+    function createInvoluteGear({
+      cx, cy,
+      z,
+      m,
+      pressureAngleDeg = 20,
+      boreRadius = 24,
+      fill = "url(#metalA)"
+    }) {
+      const alpha = pressureAngleDeg * Math.PI / 180;
+
+      // 标准齿轮参数
+      const rp = m * z / 2;           // 节圆半径
+      const ra = rp + m;              // 齿顶圆半径
+      const rf = rp - 1.25 * m;       // 齿根圆半径
+      const rb = rp * Math.cos(alpha);// 基圆半径
+
+      const pitchAngle = TAU / z;
+      const halfToothAngle = Math.PI / (2 * z); // 节圆半齿厚角
+
+      // 渐开线在节圆上的参数
+      const tp = radiusToInvoluteT(rb, rp);
+      const pp = involutePoint(rb, tp);
+      const involuteAngleAtPitch = pointAngle(pp);
+
+      // 让左右齿廓在节圆上分别落在 ±halfToothAngle
+      const leftRotation = -halfToothAngle - involuteAngleAtPitch;
+      const rightRotation = +halfToothAngle + involuteAngleAtPitch;
+
+      const tOuter = radiusToInvoluteT(rb, ra);
+      const flankSteps = 24;
+
+      const leftFlankBase = [];
+      const rightFlankBase = [];
+
+      for (let i = 0; i <= flankSteps; i++) {
+        const t = tOuter * i / flankSteps;
+        const p = involutePoint(rb, t);
+
+        // 左齿廓
+        leftFlankBase.push(rotate(p, leftRotation));
+
+        // 右齿廓：镜像后旋转
+        rightFlankBase.push(rotate({ x: p.x, y: -p.y }, rightRotation));
+      }
+
+      // 基圆起点角
+      const leftBaseAngle = pointAngle(leftFlankBase[0]);
+      const rightBaseAngle = pointAngle(rightFlankBase[0]);
+
+      // 单齿顶点角
+      const leftTopAngle = pointAngle(leftFlankBase[leftFlankBase.length - 1]);
+      const rightTopAngle = pointAngle(rightFlankBase[rightFlankBase.length - 1]);
+
+      const outline = [];
+
+      for (let tooth = 0; tooth < z; tooth++) {
+        const a = tooth * pitchAngle;
+        const aNext = (tooth + 1) * pitchAngle;
+
+        const leftFlank = leftFlankBase.map(p => rotate(p, a));
+        const rightFlank = rightFlankBase.map(p => rotate(p, a));
+
+        const currentRightRootAngle = rightBaseAngle + a;
+        const nextLeftRootAngle = leftBaseAngle + aNext;
+
+        // 左齿廓：根 -> 顶
+        if (tooth === 0) {
+          outline.push(...leftFlank);
+        } else {
+          outline.push(...leftFlank);
+        }
+
+        // 齿顶圆弧：左顶 -> 右顶
+        const topArc = arcPoints(
+          ra,
+          leftTopAngle + a,
+          rightTopAngle + a,
+          10
+        );
+        outline.push(...topArc.slice(1));
+
+        // 右齿廓：顶 -> 根
+        outline.push(...rightFlank.slice(0, -1).reverse());
+
+        // 齿根圆弧：当前右根 -> 下一齿左根
+        const rootArc = arcPoints(
+          rf,
+          currentRightRootAngle,
+          nextLeftRootAngle,
+          12
+        );
+        outline.push(...rootArc.slice(1));
+      }
+
+      let d = "";
+      outline.forEach((p, i) => {
+        const pt = translate(p, cx, cy);
+        d += (i === 0 ? `M ${pt.x.toFixed(3)} ${pt.y.toFixed(3)}` : ` L ${pt.x.toFixed(3)} ${pt.y.toFixed(3)}`);
+      });
+      d += " Z";
+
+      const g = createSVG("g");
+
+      // 主体
+      g.appendChild(createSVG("path", {
+        d,
+        fill,
+        stroke: "#5f6a76",
+        "stroke-width": 2.2,
+        "stroke-linejoin": "round"
+      }));
+
+      // 节圆辅助线
+      g.appendChild(createSVG("circle", {
+        cx, cy, r: rp,
+        fill: "none",
+        stroke: "rgba(255,255,255,0.18)",
+        "stroke-width": 1.2,
+        "stroke-dasharray": "5 5"
+      }));
+
+      // 轮盘
+      g.appendChild(createSVG("circle", {
+        cx, cy,
+        r: rp * 0.56,
+        fill: "rgba(255,255,255,0.14)",
+        stroke: "#6c7782",
+        "stroke-width": 2
+      }));
+
+      // 辐条
+      const spokeCount = Math.max(4, Math.round(z / 5));
+      for (let i = 0; i < spokeCount; i++) {
+        const a = TAU * i / spokeCount;
+        const p1 = {
+          x: cx + (boreRadius + 8) * Math.cos(a),
+          y: cy + (boreRadius + 8) * Math.sin(a)
+        };
+        const p2 = {
+          x: cx + rp * 0.5 * Math.cos(a),
+          y: cy + rp * 0.5 * Math.sin(a)
+        };
+        g.appendChild(createSVG("line", {
+          x1: p1.x, y1: p1.y,
+          x2: p2.x, y2: p2.y,
+          stroke: "#77838f",
+          "stroke-width": 8,
+          "stroke-linecap": "round"
+        }));
+      }
+
+      // 中心圈
+      g.appendChild(createSVG("circle", {
+        cx, cy,
+        r: boreRadius + 10,
+        fill: "rgba(255,255,255,0.12)",
+        stroke: "#5c6773",
+        "stroke-width": 2
+      }));
+
+      // 螺栓
+      const boltCount = 6;
+      const boltRadius = boreRadius + 22;
+      for (let i = 0; i < boltCount; i++) {
+        const a = TAU * i / boltCount - Math.PI / 2;
+        g.appendChild(createSVG("circle", {
+          cx: cx + boltRadius * Math.cos(a),
+          cy: cy + boltRadius * Math.sin(a),
+          r: 4.2,
+          fill: "#6f7984",
+          stroke: "#f4f7fa",
+          "stroke-width": 1
+        }));
+      }
+
+      // 轴孔
+      g.appendChild(createSVG("circle", {
+        cx, cy,
+        r: boreRadius,
+        fill: "url(#hubGrad)",
+        stroke: "#56616d",
+        "stroke-width": 2
+      }));
+
+      return {
+        group: g,
+        geometry: { z, m, alpha, rp, ra, rf, rb }
+      };
+    }
+
+    function init() {
+      const gear1Container = document.getElementById("gear1");
+      const gear2Container = document.getElementById("gear2");
+      const info = document.getElementById("info");
+
+      // ======= 保证真实啮合的参数 =======
+      const m = 10;     // 模数
+      const alpha = 20; // 压力角
+      const z1 = 24;    // 大齿轮
+      const z2 = 12;    // 小齿轮
+
+      const c1 = { x: 470, y: 310 };
+
+      const gear1 = createInvoluteGear({
+        cx: c1.x,
+        cy: c1.y,
+        z: z1,
+        m,
+        pressureAngleDeg: alpha,
+        boreRadius: 28,
+        fill: "url(#metalA)"
+      });
+
+      // 真实中心距 = 两节圆半径之和
+      const centerDistance = gear1.geometry.rp + m * z2 / 2;
+      const c2 = {
+        x: c1.x + centerDistance,
+        y: c1.y
+      };
+
+      const gear2 = createInvoluteGear({
+        cx: c2.x,
+        cy: c2.y,
+        z: z2,
+        m,
+        pressureAngleDeg: alpha,
+        boreRadius: 20,
+        fill: "url(#metalB)"
+      });
+
+      gear1Container.appendChild(gear1.group);
+      gear2Container.appendChild(gear2.group);
+
+      // ----------------------------
+      // 初始相位修正
+      // ----------------------------
+      // 两齿轮连心线为水平线，接触点位于两节圆切点附近。
+      // 对标准外啮合齿轮，让一个齿中心对准连心线时，
+      // 另一个齿槽中心应对准该连心线。
+      //
+      // 这里使用：
+      // 大齿轮：让一个齿中心朝向右侧（0 rad）
+      // 小齿轮：让一个齿槽中心朝向左侧（π rad）
+      //
+      // 对于齿中心和齿槽中心的差值，正好是半个齿距角。
+      let theta1 = 0;
+      let theta2 = Math.PI + Math.PI / z2;
+
+      // 真实角速度比：ω2 = -ω1 * z1 / z2
+      const omega1 = TAU / 12;      // 大齿轮 12 秒一圈
+      const omega2 = -omega1 * z1 / z2;
+
+      let last = performance.now();
+
+      function render() {
+        gear1Container.setAttribute(
+          "transform",
+          `rotate(${theta1 * 180 / Math.PI} ${c1.x} ${c1.y})`
+        );
+        gear2Container.setAttribute(
+          "transform",
+          `rotate(${theta2 * 180 / Math.PI} ${c2.x} ${c2.y})`
+        );
+      }
+
+      function animate(now) {
+        const dt = (now - last) / 1000;
+        last = now;
+
+        theta1 += omega1 * dt;
+        theta2 += omega2 * dt;
+
+        render();
+        requestAnimationFrame(animate);
+      }
+
+      render();
+      requestAnimationFrame(animate);
+
+      info.textContent =
+        `真实渐开线啮合：模数 m=${m}，压力角 α=${alpha}°，齿数 ${z1}:${z2}，中心距 a=${centerDistance.toFixed(2)}，角速度比 ω₂/ω₁=${(-z1 / z2).toFixed(2)}`;
+    }
+
+    init();
+  </script>
+</body>
+</html>
